@@ -4,7 +4,7 @@ A keyboard-driven to-do list for a plain markdown file of `- [ ]` checkboxes. Li
 press a global shortcut, work through your tasks without touching the mouse, press Esc.
 Prefer a real window? Open it from the menu bar, or make the shortcut open it (Settings → Window).
 
-- Works with any `.md` file. Everything else in the file is left untouched.
+- Works with any `.md` files, one or several. Everything else in them is left untouched.
 - Obsidian integration is optional (Settings → Obsidian).
 - macOS 14+, universal binary, no dependencies.
 
@@ -37,6 +37,8 @@ First launch asks for the markdown file. Add the app to Login Items from Setting
 | `e` `↩` | edit |
 | `dd` | delete (with sub-tasks) |
 | `t` | set due date |
+| `s` | snooze: push the due date (`tomorrow`, `mon`, `+3d`, `24.12`) |
+| `m` | move to another heading, in this or another file |
 | `p` | cycle priority |
 | `J` `K` | move task (with sub-tasks) down / up |
 | `⇥` `⇧⇥` | indent / outdent |
@@ -55,6 +57,17 @@ Pay rent @fri !high ~monthly #home
 
 `@tomorrow` `@mon` `@+3d` `@24.12` `@2026-10-20` set a due date, `!high|med|low` the priority,
 `~daily|weekly|2w|weekday` a repeat, `#tag` a tag.
+
+## Several files
+
+Add more files in Settings → To-do files. All, Today and Upcoming merge them, and in the window the
+sidebar groups the headings by file. The tray icon marks the **inbox** file that receives new tasks;
+when you're looking at one file or heading, new tasks go there instead. `m` can move a task between files.
+
+## Reminders
+
+Settings → Reminders sends one notification a day, at the time you choose, listing what's overdue or due
+today. Tock has to be running (turn on Launch at login). Tasks only carry dates, so there are no per-task times.
 
 ## File format
 

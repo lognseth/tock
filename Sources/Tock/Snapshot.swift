@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `Tock --snapshot out.png [today|upcoming|help|edit|welcome|dark|window|windowdark]` renders the panel with sample data, for visual checks.
+/// `Tock --snapshot out.png [today|upcoming|help|edit|move|snooze|welcome|dark|window|windowdark|multi]` renders the panel with sample data, for visual checks.
 @MainActor
 enum Snapshot {
     static func run(path: String, variant: String) -> Int32 {
@@ -32,19 +32,26 @@ enum Snapshot {
         """
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("tock-snapshot.md")
         try? sample.write(to: url, atomically: true, encoding: .utf8)
-        store.fileURL = variant == "welcome" ? nil : url
-        store.load()
+        var urls = variant == "welcome" ? [] : [url]
+        if variant == "multi" {
+            let second = FileManager.default.temporaryDirectory.appendingPathComponent("Reading.md")
+            try? "# Books\n- [ ] Finish the Swift concurrency chapter 📅 \(day(0)) #learning\n- [ ] Order the new paperback\n\n# Articles\n- [ ] Read the Sparkle docs ⏫\n".write(to: second, atomically: true, encoding: .utf8)
+            urls.append(second)
+        }
+        store.setFiles(urls)
         if variant == "today" { store.setView(.today) }
         if variant == "upcoming" { store.setView(.upcoming) }
         if variant == "help" { store.showHelp = true }
         if variant == "edit" { store.beginEdit(.newEnd) }
+        if variant == "move" { store.beginEdit(.move) }
+        if variant == "snooze" { store.beginEdit(.snooze) }
         if variant == "filter" { store.filter = "home"; store.fixSelection() }
         if variant != "welcome" && variant != "today" && variant != "upcoming" && variant != "filter" {
-            store.selected = store.taskLines.dropFirst().first
+            store.selected = store.taskIDs.dropFirst().first
         }
 
         if variant == "window" { store.showSection("Home") }
-        let isWindow = variant == "window" || variant == "windowdark"
+        let isWindow = ["window", "windowdark", "multi"].contains(variant)
         if variant == "windowdark" { store.setView(.all) }
         let size = isWindow ? NSSize(width: 960, height: 640) : NSSize(width: 640, height: 480)
         let hosting = NSHostingView(rootView: isWindow

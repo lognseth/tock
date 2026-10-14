@@ -7,13 +7,13 @@ struct WindowView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if store.fileURL != nil {
+            if store.hasFiles {
                 Sidebar(store: store)
                     .frame(width: 220)
                 Divider()
             }
             VStack(spacing: 0) {
-                if store.fileURL == nil {
+                if !store.hasFiles {
                     WelcomeView()
                 } else {
                     WindowHeader(store: store)
@@ -73,24 +73,31 @@ struct Sidebar: View {
 
     var body: some View {
         let sections = store.sections
-        let minLevel = sections.map(\.level).min() ?? 1
+        let minLevel = sections.filter { !$0.isFile }.map(\.level).min() ?? 1
         let tags = store.tags
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 title("Views")
                 ForEach(ViewMode.allCases, id: \.self) { mode in
                     SidebarRow(icon: Self.icons[mode] ?? "circle", title: mode.title, count: store.count(mode),
-                               selected: store.view == mode && store.section == nil && store.filter.isEmpty) {
+                               selected: store.view == mode && store.scope == .all && store.filter.isEmpty) {
                         choose { store.showView(mode) }
                     }
                 }
                 if !sections.isEmpty {
-                    title("Lists")
+                    title(store.multiFile ? "Files" : "Lists")
                     ForEach(sections) { s in
-                        SidebarRow(icon: "list.bullet", title: s.name, count: s.count,
-                                   selected: store.view == .all && store.section == s.name,
-                                   indent: s.level - minLevel) {
-                            choose { store.showSection(s.name) }
+                        if s.isFile {
+                            SidebarRow(icon: "doc.text", title: s.name, count: s.count,
+                                       selected: store.view == .all && store.scope == .file(s.doc)) {
+                                choose { store.showFile(s.doc) }
+                            }
+                        } else {
+                            SidebarRow(icon: "list.bullet", title: s.name, count: s.count,
+                                       selected: store.view == .all && store.scope == .section(doc: s.doc, name: s.name),
+                                       indent: s.level - minLevel + (store.multiFile ? 1 : 0)) {
+                                choose { store.showSection(doc: s.doc, name: s.name) }
+                            }
                         }
                     }
                 }

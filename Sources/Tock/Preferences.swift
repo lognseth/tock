@@ -57,7 +57,9 @@ final class Preferences: ObservableObject {
     private let defaults: UserDefaults
     var onChange: (() -> Void)?
 
-    @Published var filePath: String? { didSet { defaults.set(filePath, forKey: "filePath"); onChange?() } }
+    @Published var filePaths: [String] { didSet { defaults.set(filePaths, forKey: "filePaths"); onChange?() } }
+    /// File that receives new tasks (defaults to the first one).
+    @Published var inboxPath: String? { didSet { defaults.set(inboxPath, forKey: "inboxPath"); onChange?() } }
     @Published var openHotKey: KeyCombo { didSet { save(openHotKey, "openHotKey"); onChange?() } }
     @Published var quickAddHotKey: KeyCombo { didSet { save(quickAddHotKey, "quickAddHotKey"); onChange?() } }
     @Published var showBadge: Bool { didSet { defaults.set(showBadge, forKey: "showBadge"); onChange?() } }
@@ -67,12 +69,17 @@ final class Preferences: ObservableObject {
     @Published var openInWindow: Bool { didSet { defaults.set(openInWindow, forKey: "openInWindow") } }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock"); onChange?() } }
     @Published var obsidianEnabled: Bool { didSet { defaults.set(obsidianEnabled, forKey: "obsidianEnabled") } }
+    @Published var remindersEnabled: Bool { didSet { defaults.set(remindersEnabled, forKey: "remindersEnabled"); onChange?() } }
+    @Published var reminderMinutes: Int { didSet { defaults.set(reminderMinutes, forKey: "reminderMinutes") } }  // minutes after midnight
+    @Published var reminderError: String?
     @Published var hotKeyError: String?
     @Published var loginError: String?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        filePath = defaults.string(forKey: "filePath")
+        // Older versions stored a single `filePath`.
+        filePaths = defaults.stringArray(forKey: "filePaths") ?? defaults.string(forKey: "filePath").map { [$0] } ?? []
+        inboxPath = defaults.string(forKey: "inboxPath")
         openHotKey = Self.load("openHotKey", from: defaults) ?? .defaultOpen
         quickAddHotKey = Self.load("quickAddHotKey", from: defaults) ?? .defaultQuickAdd
         showBadge = defaults.object(forKey: "showBadge") as? Bool ?? true
@@ -81,7 +88,15 @@ final class Preferences: ObservableObject {
         newTaskHeading = defaults.string(forKey: "newTaskHeading") ?? ""
         openInWindow = defaults.object(forKey: "openInWindow") as? Bool ?? false
         showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
+        remindersEnabled = defaults.object(forKey: "remindersEnabled") as? Bool ?? false
+        reminderMinutes = defaults.object(forKey: "reminderMinutes") as? Int ?? 9 * 60
         obsidianEnabled = defaults.object(forKey: "obsidianEnabled") as? Bool ?? false
+    }
+
+    /// When the last daily summary went out; kept so a relaunch doesn't send it twice.
+    var lastReminderSent: Date? {
+        get { defaults.object(forKey: "lastReminderSent") as? Date }
+        set { defaults.set(newValue, forKey: "lastReminderSent") }
     }
 
     private func save(_ combo: KeyCombo, _ key: String) {

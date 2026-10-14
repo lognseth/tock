@@ -41,7 +41,7 @@ struct PanelView: View {
     @ObservedObject var prefs: Preferences
     var body: some View {
         VStack(spacing: 0) {
-            if store.fileURL == nil {
+            if !store.hasFiles {
                 WelcomeView()
             } else {
                 HeaderBar(store: store)
@@ -74,24 +74,65 @@ struct EditBar: View {
         let (icon, prompt): (String, String) = switch kind {
         case .edit: ("pencil", "Edit task")
         case .due: ("calendar", "Due date: today, tomorrow, mon, +3d, 24.12. Empty clears")
+        case .snooze: ("moon.zzz", "Snooze until: tomorrow, mon, +3d, 24.12")
+        case .move: ("arrow.turn.down.right", "Move to heading. Type to search, ↑↓ to choose")
         case .filter: ("magnifyingglass", "Filter by text or #tag")
         default: ("plus.circle.fill", "New task   @tomorrow  !high  ~weekly  #tag")
         }
         let text = kind == .filter ? $store.filter : $store.draft
-        HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(Color.accentColor)
-            TextField(prompt, text: text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 15))
-                .focused($focused)
-                .onSubmit { store.commitEdit(keepOpen: NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false) }
-                .onExitCommand { store.cancelEdit() }
-                .onChange(of: store.filter) { _, _ in if kind == .filter { store.fixSelection() } }
+        VStack(spacing: 0) {
+            if kind == .move { MovePicker(store: store) }
+            HStack(spacing: 10) {
+                Image(systemName: icon).foregroundStyle(Color.accentColor)
+                TextField(prompt, text: text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15))
+                    .focused($focused)
+                    .onSubmit { store.commitEdit(keepOpen: NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false) }
+                    .onExitCommand { store.cancelEdit() }
+                    .onChange(of: store.filter) { _, _ in if kind == .filter { store.fixSelection() } }
+                    .onChange(of: store.draft) { _, _ in if kind == .move { store.moveIndex = 0 } }
+                    .onKeyPress(.upArrow) {
+                        guard kind == .move else { return .ignored }
+                        store.moveIndex = max(0, store.moveIndex - 1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        guard kind == .move else { return .ignored }
+                        store.moveIndex = min(max(store.moveTargets().count - 1, 0), store.moveIndex + 1)
+                        return .handled
+                    }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
         .background(Color.accentColor.opacity(0.06))
         .onAppear { DispatchQueue.main.async { focused = true } }
+    }
+}
+
+struct MovePicker: View {
+    let store: TaskStore
+
+    var body: some View {
+        let targets = store.moveTargets()
+        VStack(alignment: .leading, spacing: 1) {
+            if targets.isEmpty {
+                Text("No matching heading").font(.system(size: 12)).foregroundStyle(.secondary).padding(8)
+            }
+            ForEach(Array(targets.prefix(7).enumerated()), id: \.element.id) { i, t in
+                HStack(spacing: 8) {
+                    Image(systemName: t.heading == nil ? "arrow.down.to.line" : "number")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 14)
+                    Text(t.label).font(.system(size: 13)).lineLimit(1)
+                    Spacer()
+                }
+                .padding(.vertical, 4).padding(.horizontal, 8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(i == store.moveIndex ? Color.accentColor.opacity(0.18) : .clear))
+            }
+        }
+        .padding(8)
+        Divider().opacity(0.4)
     }
 }
 
@@ -115,7 +156,7 @@ struct HeaderBar: View {
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(Capsule().fill(Color.accentColor.opacity(0.15)))
             }
-            Text(store.fileURL?.deletingPathExtension().lastPathComponent ?? "")
+            Text(store.fileTitle)
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
@@ -161,11 +202,12 @@ struct TaskList: View {
                             case .heading(_, let level, let text):
                                 SectionHeader(text: text, level: level)
                             case .task(let t):
-                                TaskRow(item: t, selected: t.line == store.selected, today: today,
-                                        file: obsidian ? store.fileURL : nil,
-                                        onTap: { store.selected = t.line; store.onEditEnded?() },
-                                        onDoubleTap: { store.selected = t.line; store.beginEdit(.edit) },
-                                        onCheck: { store.selected = t.line; store.toggle(); store.onEditEnded?() })
+                                TaskRow(item: t, selected: t.id == store.selected, today: today,
+                                        file: obsidian ? store.url(of: t) : nil,
+                                        fileLabel: store.multiFile && store.view != .all ? store.docs[t.doc].name : nil,
+                                        onTap: { store.selected = t.id; store.onEditEnded?() },
+                                        onDoubleTap: { store.selected = t.id; store.beginEdit(.edit) },
+                                        onCheck: { store.selected = t.id; store.toggle(); store.onEditEnded?() })
                             }
                         }
                     }
@@ -210,13 +252,22 @@ struct SectionHeader: View {
     let level: Int
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 10.5, weight: .semibold))
-            .tracking(0.6)
-            .foregroundStyle(.secondary)
-            .padding(.top, 12)
-            .padding(.bottom, 3)
-            .padding(.horizontal, 10)
+        if level == 0 {
+            Label(text, systemImage: "doc.text")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.8))
+                .padding(.top, 14)
+                .padding(.bottom, 2)
+                .padding(.horizontal, 10)
+        } else {
+            Text(text.uppercased())
+                .font(.system(size: 10.5, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+                .padding(.top, 12)
+                .padding(.bottom, 3)
+                .padding(.horizontal, 10)
+        }
     }
 }
 
@@ -225,6 +276,7 @@ struct TaskRow: View {
     let selected: Bool
     let today: Date
     let file: URL?  // set only when Obsidian integration is on
+    var fileLabel: String?
     let onTap: () -> Void
     let onDoubleTap: () -> Void
     let onCheck: () -> Void
@@ -277,6 +329,9 @@ struct TaskRow: View {
                     .padding(.horizontal, 6).padding(.vertical, 1.5)
                     .background(Capsule().fill(Color.accentColor.opacity(0.12)))
             }
+            if let fileLabel {
+                Text(fileLabel).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
             if item.recurrence != nil {
                 Image(systemName: "repeat").font(.system(size: 10)).foregroundStyle(.secondary)
             }
@@ -306,11 +361,11 @@ struct FooterBar: View {
         HStack(spacing: 12) {
             if let status = store.status {
                 Text(status).font(.system(size: 11)).foregroundStyle(.secondary)
-            } else if store.fileURL == nil {
-                Hint(key: "↩", label: "choose file")
+            } else if !store.hasFiles {
+                Hint(key: "↩", label: "choose files")
                 Hint(key: "c", label: "create new")
             } else if let kind = store.editing {
-                Hint(key: "↩", label: kind == .filter ? "apply" : "save")
+                Hint(key: "↩", label: kind == .filter ? "apply" : kind == .move ? "move here" : kind == .snooze ? "snooze" : "save")
                 if store.closeAfterCommit { Hint(key: "⇧↩", label: "save & add another") }
                 Hint(key: "esc", label: "cancel")
             } else {
@@ -324,7 +379,7 @@ struct FooterBar: View {
                 Hint(key: "?", label: "help")
             }
             Spacer(minLength: 0)
-            if store.fileURL != nil, store.editing == nil, store.status == nil {
+            if store.hasFiles, store.editing == nil, store.status == nil {
                 Text("\(store.count(.all)) open").font(.system(size: 10.5)).foregroundStyle(.tertiary)
             }
         }
@@ -339,7 +394,8 @@ struct HelpOverlay: View {
         ("Move", [("j k  ↑ ↓", "up / down"), ("g G", "top / bottom"), ("1 2 3", "All / Today / Upcoming"),
                   ("/", "filter (text or #tag)"), ("esc", "clear filter, then close")]),
         ("Tasks", [("x  space", "toggle done"), ("n", "new below"), ("N", "new at end"), ("e  ↩", "edit"),
-                   ("dd", "delete"), ("t", "set due date"), ("p", "cycle priority"),
+                   ("dd", "delete"), ("t", "set due date"), ("s", "snooze (push date)"),
+                   ("m", "move to heading"), ("p", "cycle priority"),
                    ("J K", "move down / up"), ("⇥  ⇧⇥", "indent / outdent"),
                    ("u  ⌃R", "undo / redo"), ("H", "show or hide done")]),
         ("Other", [("o", "open file"), ("l", "open linked note (Obsidian)"), ("⌘,", "settings")]),
@@ -386,7 +442,7 @@ struct WelcomeView: View {
                 .font(.system(size: 44))
                 .foregroundStyle(Color.accentColor)
             Text("Welcome to Tock").font(.title2.weight(.semibold))
-            Text("Tock edits a plain markdown file of checkbox tasks.\nPick the file you want to use, or create a new one.")
+            Text("Tock edits plain markdown files of checkbox tasks.\nPick the files you want to use, or create a new one.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
         }

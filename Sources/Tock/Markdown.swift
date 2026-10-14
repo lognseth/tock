@@ -20,7 +20,8 @@ enum Priority: Int, CaseIterable {
 }
 
 struct TaskItem: Equatable {
-    var line: Int
+    var doc = 0               // index of the file this task lives in
+    var line: Int             // line within that file
     var indent: Int
     var depth = 0
     var mark: Character
@@ -34,19 +35,8 @@ struct TaskItem: Equatable {
 
     var done: Bool { mark == "x" || mark == "X" || mark == "-" }
     var cancelled: Bool { mark == "-" }
+    var id: Int { TaskID.make(doc: doc, line: line) }
     var effectiveDate: Date? { due ?? scheduled }
-}
-
-enum Row: Identifiable {
-    case heading(id: Int, level: Int, text: String)
-    case task(TaskItem)
-
-    var id: Int {
-        switch self {
-        case .heading(let id, _, _): return id
-        case .task(let t): return t.line
-        }
-    }
 }
 
 struct QuickInput {
@@ -89,6 +79,38 @@ private enum Rx {
 /// isn't a task (prose, frontmatter, code blocks) round-trips untouched.
 enum MD {
     static let stampPattern = #" ?✅\x{FE0F}? ?\d{4}-\d{2}-\d{2}"#
+
+    /// Lines that can hold tasks or headings: not YAML frontmatter, not inside code fences.
+    static func scannableLines(_ lines: [String]) -> [Int] {
+        var start = 0
+        if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { start = end + 1 }
+        var out: [Int] = []
+        var inFence = false
+        for i in start..<lines.count {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { inFence.toggle(); continue }
+            if !inFence { out.append(i) }
+        }
+        return out
+    }
+
+    static func headings(in lines: [String]) -> [Heading] {
+        scannableLines(lines).compactMap { i in
+            parseHeading(lines[i]).map { Heading(line: i, level: $0.level, text: $0.text) }
+        }
+    }
+
+    /// Where a new task belongs: the end of the named section (before its trailing blank lines),
+    /// or the end of the file when `heading` is nil. Returns nil if that heading doesn't exist.
+    static func insertionPoint(in lines: [String], underHeading heading: String?) -> Int? {
+        let eof = lines.last == "" ? lines.count - 1 : lines.count
+        guard let name = heading else { return max(eof, 0) }
+        let heads = headings(in: lines)
+        guard let h = heads.first(where: { $0.text.caseInsensitiveCompare(name) == .orderedSame }) else { return nil }
+        var end = heads.first { $0.line > h.line && $0.level <= h.level }?.line ?? eof
+        while end > h.line + 1, isBlank(lines[end - 1]) { end -= 1 }
+        return end
+    }
 
     static func leadingWhitespace(_ s: String) -> String {
         String(s.prefix { $0 == " " || $0 == "\t" })

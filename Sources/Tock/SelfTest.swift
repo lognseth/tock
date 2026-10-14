@@ -31,8 +31,7 @@ enum SelfTest {
         try! content.write(to: url, atomically: true, encoding: .utf8)
         let store = TaskStore(prefs: prefs ?? makePrefs())
         store.now = { today }
-        store.fileURL = url
-        store.load()
+        store.setFiles([url])
         return (store, url)
     }
 
@@ -48,6 +47,9 @@ enum SelfTest {
         views()
         indexing()
         sidebar()
+        multiFile()
+        moveAndSnooze()
+        reminders()
         external()
         obsidian()
         print(failures == 0 ? "selftest: all \(checks) checks passed" : "selftest: \(failures) of \(checks) failed")
@@ -254,26 +256,26 @@ enum SelfTest {
 
         s.setView(.all)
         s.filter = "#x"; s.fixSelection()
-        eq(s.taskLines.count, 1)
+        eq(s.taskIDs.count, 1)
         s.filter = "TODAY"; s.fixSelection()
-        eq(s.taskLines.count, 1)
+        eq(s.taskIDs.count, 1)
         s.filter = ""
         s.showDone = false
-        eq(s.taskLines.count, 5)
+        eq(s.taskIDs.count, 5)
     }
 
     private static func indexing() {
         // Frontmatter and fenced code are never treated as tasks; depth follows nesting not width.
         let src = "---\n- [ ] in frontmatter\n---\n- [ ] real\n```\n- [ ] in code\n```\n- [ ] a\n  - [ ] b\n    - [ ] c\n"
         let (s, _) = makeStore(src)
-        eq(s.taskMap.values.map(\.title).sorted(), ["a", "b", "c", "real"])
-        eq(s.taskMap[8]?.depth, 1)
-        eq(s.taskMap[9]?.depth, 2)
+        eq(s.docs[0].taskMap.values.map(\.title).sorted(), ["a", "b", "c", "real"])
+        eq(s.docs[0].taskMap[8]?.depth, 1)
+        eq(s.docs[0].taskMap[9]?.depth, 2)
 
         let (empty, _) = makeStore("")
-        eq(empty.taskLines.count, 0)
+        eq(empty.taskIDs.count, 0)
         empty.beginEdit(.newEnd); empty.draft = "first"; empty.commitEdit()
-        eq(empty.lines, ["- [ ] first", ""])
+        eq(empty.docs[0].lines, ["- [ ] first", ""])
     }
 
     private static func sidebar() {
@@ -285,24 +287,145 @@ enum SelfTest {
         eq(s.tags.map(\.count), [2, 2])
 
         s.showSection("Work")
-        eq(s.taskLines.count, 3)                        // includes the nested ## Sub
+        eq(s.taskIDs.count, 3)                        // includes the nested ## Sub
         eq(s.viewTitle, "Work")
         s.showSection("Sub")
-        eq(s.taskLines.count, 1)
+        eq(s.taskIDs.count, 1)
         s.showTag("y")
-        eq(s.taskLines.count, 2)
-        check(s.section == nil && s.filter == "#y", "tag resets section")
+        eq(s.taskIDs.count, 2)
+        check(s.scope == .all && s.filter == "#y", "tag resets section")
         s.showView(.today)
         check(s.filter.isEmpty && s.view == .today, "showView resets filter")
         s.showView(.all)
-        eq(s.taskLines.count, 5)
+        eq(s.taskIDs.count, 5)
         s.showSection("Home"); s.setView(.all)
-        check(s.section == nil, "keyboard 1 clears the section")
+        check(s.scope == .all, "keyboard 1 clears the section")
 
         // Reordering still works inside a section, using real file lines.
         let (s2, url2) = makeStore("# A\n- [ ] 1\n- [ ] 2\n# B\n- [ ] 3\n")
         s2.showSection("A"); s2.selected = 1; s2.reorder(1)
         eq(disk(url2), "# A\n- [ ] 2\n- [ ] 1\n# B\n- [ ] 3\n")
+    }
+
+    private static func makeMulti(_ contents: [String], inbox: Int = 0) -> (TaskStore, [URL]) {
+        let urls = contents.map { content -> URL in
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("tock-\(UUID().uuidString).md")
+            try! content.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let store = TaskStore(prefs: makePrefs())
+        store.now = { today }
+        store.setFiles(urls, inbox: urls[inbox])
+        return (store, urls)
+    }
+
+    private static func multiFile() {
+        let (s, urls) = makeMulti(["# Work\n- [ ] w1 📅 2026-10-14\n- [ ] w2\n", "# Home\n- [ ] h1 📅 2026-10-10\n- [x] h2\n"], inbox: 1)
+        eq(s.docs.count, 2)
+        eq(s.fileTitle, "2 files")
+        eq(s.count(.all), 3); eq(s.count(.today), 2)
+        eq(s.taskIDs.count, 4)                                 // done tasks are shown by default
+        eq(s.taskIDs.map { TaskID.doc($0) }, [0, 0, 1, 1])
+
+        // Today merges files, overdue first.
+        s.setView(.today)
+        eq(s.taskIDs.map { s.task($0)!.title }, ["h1", "w1"])
+        s.setView(.all)
+
+        // File and section scopes, and new tasks follow the scope.
+        s.showFile(1)
+        eq(s.taskIDs.count, 2)
+        s.beginEdit(.newEnd); s.draft = "scoped"; s.commitEdit()
+        eq(disk(urls[1]), "# Home\n- [ ] h1 📅 2026-10-10\n- [x] h2\n- [ ] scoped\n")
+        s.showView(.all)
+        s.beginEdit(.newEnd); s.draft = "to inbox"; s.commitEdit()
+        check(disk(urls[1]).hasSuffix("- [ ] to inbox\n"), "unscoped quick add goes to the inbox file")
+        eq(disk(urls[0]), "# Work\n- [ ] w1 📅 2026-10-14\n- [ ] w2\n")
+
+        // Selection and edits address the right file.
+        s.selected = TaskID.make(doc: 1, line: 1)
+        s.toggle()
+        check(disk(urls[1]).contains("- [x] h1"), "toggle edits the second file")
+        eq(disk(urls[0]), "# Work\n- [ ] w1 📅 2026-10-14\n- [ ] w2\n")
+
+        // Undo goes back through changes in either file.
+        s.undo(); s.undo(); s.undo()
+        eq(disk(urls[1]), "# Home\n- [ ] h1 📅 2026-10-10\n- [x] h2\n")
+
+        // Removing a file keeps the others.
+        s.setFiles([urls[0]])
+        eq(s.docs.count, 1)
+        eq(s.fileTitle, s.docs[0].name)
+    }
+
+    private static func moveAndSnooze() {
+        // Move within a file.
+        let (s, url) = makeStore("# A\n- [ ] 1\n\t- [ ] 1a\n- [ ] 2\n\n# B\n- [ ] 3\n")
+        s.selected = 1
+        s.beginEdit(.move)
+        eq(s.moveTargets().map(\.label), ["A", "B", "End of file"])
+        s.draft = "b"; s.commitEdit()
+        eq(disk(url), "# A\n- [ ] 2\n\n# B\n- [ ] 3\n- [ ] 1\n\t- [ ] 1a\n")
+        eq(s.selected, 5)
+        s.undo()
+        eq(disk(url), "# A\n- [ ] 1\n\t- [ ] 1a\n- [ ] 2\n\n# B\n- [ ] 3\n")
+
+        // A nested task moves to the top level of its new section.
+        s.selected = 2
+        s.beginEdit(.move); s.draft = "a"; s.commitEdit()
+        eq(disk(url), "# A\n- [ ] 1\n- [ ] 2\n- [ ] 1a\n\n# B\n- [ ] 3\n")
+
+        // Move across files as one undoable step.
+        let (m, urls) = makeMulti(["# One\n- [ ] x\n", "# Two\n- [ ] y\n"])
+        m.selected = TaskID.make(doc: 0, line: 1)
+        m.beginEdit(.move); m.draft = "two"; m.commitEdit()
+        eq(disk(urls[0]), "# One\n")
+        eq(disk(urls[1]), "# Two\n- [ ] y\n- [ ] x\n")
+        eq(m.selected, TaskID.make(doc: 1, line: 2))
+        m.undo()
+        eq(disk(urls[0]), "# One\n- [ ] x\n")
+        eq(disk(urls[1]), "# Two\n- [ ] y\n")
+
+        // Snooze moves the due date, or the scheduled date if that's all there is.
+        let (z, zurl) = makeStore("- [ ] a 📅 2026-10-14\n- [ ] b ⏳ 2026-10-14\n- [ ] c\n")
+        z.setView(.today)
+        eq(z.taskIDs, [0, 1])
+        z.selected = 0
+        z.beginEdit(.snooze); z.draft = "+3d"; z.commitEdit()
+        eq(disk(zurl), "- [ ] a 📅 2026-10-17\n- [ ] b ⏳ 2026-10-14\n- [ ] c\n")
+        eq(z.selected, 1)                                       // moved on to the next visible task
+        z.beginEdit(.snooze); z.draft = "fri"; z.commitEdit()
+        eq(disk(zurl), "- [ ] a 📅 2026-10-17\n- [ ] b ⏳ 2026-10-16\n- [ ] c\n")
+        eq(z.taskIDs.count, 0)
+        z.setView(.all); z.selected = 2
+        z.beginEdit(.snooze); z.draft = "garbage"; z.commitEdit()
+        check(z.editing == .snooze, "bad date keeps the prompt open")
+        z.cancelEdit()
+    }
+
+    private static func reminders() {
+        let a = MD.parseTask("- [ ] first 📅 2026-10-10")!
+        let b = MD.parseTask("- [ ] second 📅 2026-10-14")!
+        let c = MD.parseTask("- [ ] third")!
+        check(Reminders.summary(overdue: [], today: []) == nil, "nothing due, no notification")
+        eq(Reminders.summary(overdue: [a], today: [b])?.title, "1 overdue, 1 due today")
+        eq(Reminders.summary(overdue: [], today: [b])?.title, "1 due today")
+        eq(Reminders.summary(overdue: [a], today: [b, c, c, c])?.body, "• first\n• second\n• third\n…and 2 more")
+
+        let nine = 9 * 60
+        let day = Dates.parseISO("2026-10-14")!
+        func at(_ h: Int, _ m: Int = 0) -> Date { day.addingTimeInterval(TimeInterval(h * 3600 + m * 60)) }
+        check(!Reminders.shouldSend(now: at(8, 59), lastSent: nil, minutes: nine), "before the time")
+        check(Reminders.shouldSend(now: at(9), lastSent: nil, minutes: nine), "at the time")
+        check(Reminders.shouldSend(now: at(14), lastSent: nil, minutes: nine), "late launch still sends")
+        check(!Reminders.shouldSend(now: at(14), lastSent: at(9), minutes: nine), "already sent today")
+        check(Reminders.shouldSend(now: at(9), lastSent: at(9).addingTimeInterval(-86400), minutes: nine), "sent yesterday")
+
+        // Overdue and due-today lists come from every file.
+        let (s, _) = makeMulti(["- [ ] a 📅 2026-10-01\n- [ ] b 📅 2026-10-14\n", "- [ ] c ⏳ 2026-10-14\n- [x] d 📅 2026-10-01\n- [ ] e 📅 2026-10-20\n"])
+        let due = s.dueSummary()
+        eq(due.overdue.map(\.title), ["a"])
+        eq(due.today.map(\.title), ["b", "c"])
     }
 
     private static func external() {

@@ -43,20 +43,41 @@ struct ShortcutRecorder: View {
 
 struct SettingsView: View {
     @ObservedObject var prefs: Preferences
-    let chooseFile: () -> Void
+    let addFiles: () -> Void
     let createFile: () -> Void
+    let testReminder: () -> Void
 
     var body: some View {
         Form {
-            Section("To-do file") {
-                LabeledContent("File") {
-                    Text(prefs.filePath.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "None selected")
+            Section("To-do files") {
+                if prefs.filePaths.isEmpty {
+                    Text("No files yet").foregroundStyle(.secondary)
+                }
+                ForEach(prefs.filePaths, id: \.self) { path in
+                    HStack {
+                        Button {
+                            prefs.inboxPath = path
+                        } label: {
+                            Image(systemName: isInbox(path) ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
+                                .foregroundStyle(isInbox(path) ? Color.accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isInbox(path) ? "New tasks go here" : "Make this the file for new tasks")
+                        Text((path as NSString).abbreviatingWithTildeInPath)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        Spacer()
+                        Button {
+                            prefs.filePaths.removeAll { $0 == path }
+                            if prefs.inboxPath == path { prefs.inboxPath = nil }
+                        } label: { Image(systemName: "minus.circle") }
+                        .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        .help("Stop using this file (it isn't deleted)")
+                    }
                 }
                 HStack {
-                    Button("Choose…", action: chooseFile)
+                    Button("Add files…", action: addFiles)
                     Button("New file…", action: createFile)
                 }
                 TextField("New tasks go under heading", text: $prefs.newTaskHeading,
@@ -81,6 +102,17 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("Reminders") {
+                Toggle("Daily summary of tasks due", isOn: $prefs.remindersEnabled)
+                if prefs.remindersEnabled {
+                    DatePicker("Send at", selection: reminderTime, displayedComponents: .hourAndMinute)
+                    Button("Send a test notification", action: testReminder)
+                }
+                Text("One notification a day listing what's overdue or due today. Tock has to be running.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let error = prefs.reminderError { Text(error).font(.caption).foregroundStyle(.red) }
+            }
+
             Section("Behavior") {
                 Toggle("Show tasks due count in menu bar", isOn: $prefs.showBadge)
                 Toggle("Show completed tasks by default", isOn: $prefs.showDoneByDefault)
@@ -102,7 +134,20 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 680)
+        .frame(width: 520, height: 780)
+    }
+
+    private func isInbox(_ path: String) -> Bool {
+        (prefs.inboxPath ?? prefs.filePaths.first) == path
+    }
+
+    private var reminderTime: Binding<Date> {
+        Binding(
+            get: { Dates.startOfDay(Date()).addingTimeInterval(TimeInterval(prefs.reminderMinutes * 60)) },
+            set: { date in
+                let c = Dates.calendar.dateComponents([.hour, .minute], from: date)
+                prefs.reminderMinutes = (c.hour ?? 9) * 60 + (c.minute ?? 0)
+            })
     }
 
     @ViewBuilder
@@ -110,11 +155,11 @@ struct SettingsView: View {
         if !Obsidian.isInstalled {
             Label("Obsidian doesn't seem to be installed.", systemImage: "exclamationmark.triangle")
                 .font(.caption).foregroundStyle(.orange)
-        } else if let path = prefs.filePath, let vault = Obsidian.vaultRoot(of: URL(fileURLWithPath: path)) {
+        } else if let path = prefs.inboxPath ?? prefs.filePaths.first, let vault = Obsidian.vaultRoot(of: URL(fileURLWithPath: path)) {
             Label("Vault: \(vault.lastPathComponent)", systemImage: "checkmark.circle")
                 .font(.caption).foregroundStyle(.green)
         } else {
-            Label("No vault found around this file. Links open by path.", systemImage: "info.circle")
+            Label("No vault found around your files. Links open by path.", systemImage: "info.circle")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var hotKeys: [HotKey] = []
     private var registeredCombos: [KeyCombo] = []
     private var pollTimer: Timer?
+    private let reminders = ReminderCenter()
 
     private let panelSize = NSSize(width: 640, height: 480)
 
@@ -62,11 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         applyActivationPolicy()
         setupMainMenu()
 
-        store.fileURL = prefs.filePath.map { URL(fileURLWithPath: $0) }
-        store.load()
+        syncFiles()
         store.onCloseRequest = { [weak self] in self?.closePanel() }
         store.onEditEnded = { [weak self] in self?.activeWindow?.makeFirstResponder(nil) }
 
+        reminders.onOpen = { [weak self] in self?.openFromNotification() }
+        reminders.start()
         setupPanel()
         setupStatusItem()
         prefs.onChange = { [weak self] in self?.applyPrefs() }
@@ -78,11 +80,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 guard let self else { return }
                 if self.store.editing == nil { self.store.reloadIfChanged() }
                 self.updateBadge()
+                self.sendDailySummaryIfDue()
             }
         }
 
         if prefs.showInDock { showWindow(quickAdd: false) }
-        else if store.fileURL == nil { showPopup(quickAdd: false) }
+        else if !store.hasFiles { showPopup(quickAdd: false) }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -106,19 +109,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
     }
 
+    private func fileURLs() -> [URL] { prefs.filePaths.map { URL(fileURLWithPath: $0) } }
+
+    private func syncFiles() {
+        store.setFiles(fileURLs(), inbox: prefs.inboxPath.map { URL(fileURLWithPath: $0) })
+    }
+
     private func applyPrefs() {
-        let url = prefs.filePath.map { URL(fileURLWithPath: $0) }
-        if url != store.fileURL {
-            store.fileURL = url
-            store.selected = nil
-            store.section = nil
-            store.load()
-            updateWindowTitle()
-        }
+        syncFiles()
+        updateWindowTitle()
         applyActivationPolicy()
         registerHotKeys()
         rebuildMenu()
         updateBadge()
+        if prefs.remindersEnabled { checkNotificationAccess() }
+    }
+
+    // MARK: - Reminders
+
+    private func checkNotificationAccess() {
+        reminders.ensureAuthorized { [weak self] granted in
+            self?.prefs.reminderError = granted ? nil
+                : "Notifications are off for Tock. Allow them in System Settings → Notifications."
+        }
+    }
+
+    private func sendDailySummaryIfDue() {
+        guard prefs.remindersEnabled,
+              Reminders.shouldSend(now: Date(), lastSent: prefs.lastReminderSent, minutes: prefs.reminderMinutes)
+        else { return }
+        prefs.lastReminderSent = Date()
+        let due = store.dueSummary()
+        if let summary = Reminders.summary(overdue: due.overdue, today: due.today) { reminders.post(summary) }
+    }
+
+    private func sendTestReminder() {
+        checkNotificationAccess()
+        let due = store.dueSummary()
+        reminders.post(Reminders.summary(overdue: due.overdue, today: due.today)
+            ?? Reminders.Summary(title: "Nothing due", body: "You're all caught up. This is how the daily summary looks."))
+    }
+
+    private func openFromNotification() {
+        if prefs.showInDock || prefs.openInWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) }
     }
 
     private func registerHotKeys() {
@@ -175,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
 
-        if quickAdd && store.fileURL != nil {
+        if quickAdd && store.hasFiles {
             store.closeAfterCommit = true
             store.beginEdit(.newEnd)
         }
@@ -211,7 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func updateWindowTitle() {
-        mainWindow?.subtitle = store.fileURL?.lastPathComponent ?? ""
+        mainWindow?.subtitle = store.fileTitle
     }
 
     private func showWindow(quickAdd: Bool) {
@@ -223,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate()
         w.makeKeyAndOrderFront(nil)
         w.makeFirstResponder(nil)
-        if quickAdd && store.fileURL != nil { store.beginEdit(.newEnd) }
+        if quickAdd && store.hasFiles { store.beginEdit(.newEnd) }
     }
 
     private func hideWindow() {
@@ -289,8 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if store.showHelp { store.showHelp = false; return }
 
-        if store.fileURL == nil {
-            if code == kVK_Return { chooseFile() }
+        if !store.hasFiles {
+            if code == kVK_Return { addFiles() }
             else if code == kVK_Escape { dismissPopup(surface) }
             else if chars == "c" { createFile() }
             return
@@ -311,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case kVK_Escape:
             if store.pendingD { store.pendingD = false }
             else if !store.filter.isEmpty { store.clearFilter() }
-            else if store.section != nil { store.clearSection() }
+            else if store.scope != .all { store.clearScope() }
             else { dismissPopup(surface) }
             return
         default: break
@@ -331,6 +364,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "e": store.beginEdit(.edit)
         case "t": store.beginEdit(.due)
         case "p": store.cyclePriority()
+        case "s": store.beginEdit(.snooze)
+        case "m": store.beginEdit(.move)
         case "/": store.beginEdit(.filter)
         case "u": store.undo()
         case "H": store.showDone.toggle()
@@ -349,7 +384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Opening
 
     private func openFile(_ surface: Surface = .popup) {
-        guard let url = store.fileURL else { return }
+        guard let url = store.activeFileURL else { return }
         dismissPopup(surface)
         if prefs.obsidianEnabled, let link = Obsidian.noteURL(for: url) {
             NSWorkspace.shared.open(link)
@@ -360,7 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func openLinkedNote(_ surface: Surface) {
         guard prefs.obsidianEnabled else { store.flash("Turn on Obsidian integration in Settings to follow links"); return }
-        guard let url = store.fileURL, let s = store.selected, let task = store.taskMap[s] else { return }
+        guard let s = store.selected, let task = store.task(s), let url = store.url(of: task) else { return }
         guard let link = Obsidian.wikilinks(in: task.text).first,
               let target = Obsidian.linkURL(target: link.target, from: url) else {
             store.flash("No [[link]] in this task")
@@ -442,8 +477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView(
                 prefs: prefs,
-                chooseFile: { [weak self] in self?.chooseFile() },
-                createFile: { [weak self] in self?.createFile() }))
+                addFiles: { [weak self] in self?.addFiles() },
+                createFile: { [weak self] in self?.createFile() },
+                testReminder: { [weak self] in self?.sendTestReminder() }))
             let w = NSWindow(contentViewController: hosting)
             w.title = "Tock Settings"
             w.styleMask = [.titled, .closable]
@@ -459,16 +495,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private let markdown = UTType(filenameExtension: "md") ?? .plainText
 
-    private func chooseFile() {
+    private func addPaths(_ paths: [String]) {
+        var all = prefs.filePaths
+        for p in paths where !all.contains(p) { all.append(p) }
+        prefs.filePaths = all
+    }
+
+    private func addFiles() {
         panel.orderOut(nil)
         NSApp.activate()
         let open = NSOpenPanel()
-        open.message = "Choose the markdown file that holds your to-dos"
+        open.message = "Choose the markdown files that hold your to-dos"
         open.allowedContentTypes = [markdown, .plainText]
         open.canChooseDirectories = false
-        open.allowsMultipleSelection = false
-        guard open.runModal() == .OK, let url = open.url else { return }
-        prefs.filePath = url.path
+        open.allowsMultipleSelection = true
+        guard open.runModal() == .OK else { return }
+        addPaths(open.urls.map(\.path))
     }
 
     private func createFile() {
@@ -487,6 +529,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 return
             }
         }
-        prefs.filePath = url.path
+        addPaths([url.path])
     }
 }
