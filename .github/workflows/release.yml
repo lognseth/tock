@@ -12,6 +12,7 @@ permissions:
 jobs:
   release:
     runs-on: macos-latest
+    timeout-minutes: 25   # a hung signing/notarization step should fail, not sit for hours
     steps:
       - uses: actions/checkout@v4
 
@@ -79,8 +80,24 @@ jobs:
           esac
           gh release create "$GITHUB_REF_NAME" $FILES --generate-notes $FLAGS
 
+      # Stable releases only. Needs a fine-grained token with Contents: write on the tap repository.
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/lognseth/homebrew-tock.git" "$RUNNER_TEMP/tap"
+          ./Scripts/update-cask.sh "build/Tock-$VERSION.dmg" "$VERSION" "$RUNNER_TEMP/tap/Casks/tock.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/tock.rb
+          git diff --cached --quiet || git commit -m "tock $VERSION" && git push origin HEAD
+
       - name: Clean up
         if: always()
         run: |
           rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/sparkle.key"
+          rm -rf "$RUNNER_TEMP/tap"
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi

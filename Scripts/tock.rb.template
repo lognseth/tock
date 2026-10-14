@@ -1,0 +1,26 @@
+cask "tock" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/lognseth/tock/releases/download/v#{version}/Tock-#{version}.dmg"
+  name "Tock"
+  desc "Keyboard-driven menu bar to-do list for markdown files"
+  homepage "https://github.com/lognseth/tock"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  auto_updates true
+  depends_on macos: :sonoma
+
+  app "Tock.app"
+
+  zap trash: [
+    "~/Library/Application Support/com.local.tock",
+    "~/Library/Caches/com.local.tock",
+    "~/Library/HTTPStorages/com.local.tock",
+    "~/Library/Preferences/com.local.tock.plist",
+  ]
+end

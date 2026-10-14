@@ -10,6 +10,14 @@ Prefer a real window? Open it from the menu bar, or make the shortcut open it (S
 
 ## Install
 
+With Homebrew:
+
+```sh
+brew install --cask lognseth/tock/tock
+```
+
+Or download the DMG from the [latest release](https://github.com/lognseth/tock/releases/latest). From source:
+
 ```sh
 ./build.sh install      # builds, copies to /Applications (or ~/Applications without admin rights) and launches
 ./build.sh dmg          # or build/Tock-<version>.dmg
@@ -119,6 +127,17 @@ The workflow needs these repository secrets (Settings → Secrets and variables 
 | `NOTARY_KEY_ID` | its Key ID |
 | `NOTARY_ISSUER_ID` | the Issuer ID from App Store Connect → Users and Access → Integrations |
 | `SPARKLE_PRIVATE_KEY` | the Sparkle EdDSA private key (see Updates below) |
+
+## Homebrew tap
+
+The cask lives in a separate tap repository, `lognseth/homebrew-tock` (`Casks/tock.rb`). Each stable release regenerates it
+from `Scripts/tock.rb.template` (new version and the DMG's sha256) and pushes it, using one more repository secret:
+
+| Secret | Value |
+|---|---|
+| `HOMEBREW_TAP_TOKEN` | fine-grained personal access token limited to `lognseth/homebrew-tock` with **Contents: Read and write** |
+
+Homebrew installs don't need Sparkle (the cask declares `auto_updates true`, so `brew upgrade` leaves Tock to update itself).
 
 ## Updates
 
