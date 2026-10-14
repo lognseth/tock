@@ -15,6 +15,8 @@ cd "$(dirname "$0")"
 
 VERSION="$(cat VERSION)"          # may carry a suffix, e.g. 1.1.0-rc1 (used for the DMG name)
 BUNDLE_VERSION="${VERSION%%-*}"   # Info.plist wants plain 1.1.0
+# Sparkle reads the newest stable GitHub release's appcast.xml (pre-releases are skipped by /latest/).
+FEED_URL="https://github.com/lognseth/tock/releases/latest/download/appcast.xml"
 APP=build/Tock.app
 
 build_app() {
@@ -27,8 +29,9 @@ build_app() {
     fi
 
     rm -rf "$APP"
-    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
     cp "$BIN" "$APP/Contents/MacOS/Tock"
+    cp -R "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/"
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
     cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,13 +49,25 @@ build_app() {
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>SUFeedURL</key><string>$FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$(tr -d '[:space:]' < Resources/SparklePublicKey.txt)</string>
+  <key>SUEnableAutomaticChecks</key><true/>
 </dict></plist>
 PLIST
-    if [ -n "${SIGN_ID:-}" ]; then
-        codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
-    else
-        codesign --force --sign - "$APP"
-    fi
+    # Sign inside-out: Sparkle's helpers, then the framework, then the app. (No --deep.)
+    sign_app_code() {
+        if [ -n "${SIGN_ID:-}" ]; then
+            codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$@"
+        else
+            codesign --force --sign - "$@"
+        fi
+    }
+    FWK="$APP/Contents/Frameworks/Sparkle.framework"
+    for nested in "$FWK"/Versions/B/XPCServices/*.xpc "$FWK/Versions/B/Autoupdate" "$FWK/Versions/B/Updater.app"; do
+        [ -e "$nested" ] && sign_app_code "$nested"
+    done
+    sign_app_code "$FWK"
+    sign_app_code "$APP"
     echo "Built $APP ($VERSION)"
 }
 

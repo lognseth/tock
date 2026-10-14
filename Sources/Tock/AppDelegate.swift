@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -49,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var registeredCombos: [KeyCombo] = []
     private var pollTimer: Timer?
     private let reminders = ReminderCenter()
+    private let updates = UpdateManager()
+    private var updateObserver: Any?
 
     private let panelSize = NSSize(width: 640, height: 480)
 
@@ -69,6 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         reminders.onOpen = { [weak self] in self?.openFromNotification() }
         reminders.start()
+        updates.start()
+        updateObserver = updates.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { self?.rebuildMenu() }
+        }
         setupPanel()
         setupStatusItem()
         prefs.onChange = { [weak self] in self?.applyPrefs() }
@@ -458,6 +465,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open File", action: #selector(menuOpenFile), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(menuSettings), keyEquivalent: ",").target = self
+        if updates.isEnabled {
+            let title = updates.availableVersion.map { "Update to \($0) Available…" } ?? "Check for Updates…"
+            menu.addItem(withTitle: title, action: #selector(menuCheckForUpdates), keyEquivalent: "").target = self
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Tock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
@@ -472,11 +483,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func menuQuickAdd() { quickAdd() }
     @objc private func menuOpenWindow() { showWindow(quickAdd: false) }
     @objc private func menuOpenFile() { openFile() }
+    @objc private func menuCheckForUpdates() { updates.checkForUpdates() }
 
     @objc private func menuSettings() {
         if settingsWindow == nil {
             let hosting = NSHostingController(rootView: SettingsView(
                 prefs: prefs,
+                updates: updates,
                 addFiles: { [weak self] in self?.addFiles() },
                 createFile: { [weak self] in self?.createFile() },
                 testReminder: { [weak self] in self?.sendTestReminder() }))

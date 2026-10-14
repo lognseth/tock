@@ -118,6 +118,25 @@ The workflow needs these repository secrets (Settings → Secrets and variables 
 | `NOTARY_KEY_P8` | full text of the App Store Connect API key (`AuthKey_XXXX.p8`) |
 | `NOTARY_KEY_ID` | its Key ID |
 | `NOTARY_ISSUER_ID` | the Issuer ID from App Store Connect → Users and Access → Integrations |
+| `SPARKLE_PRIVATE_KEY` | the Sparkle EdDSA private key (see Updates below) |
+
+## Updates
+
+Installed copies update themselves with [Sparkle](https://sparkle-project.org). Tock checks
+`https://github.com/lognseth/tock/releases/latest/download/appcast.xml`, which every **stable** release
+publishes (pre-release tags like `-rc1` are skipped). Updates are verified with an EdDSA signature,
+on top of the Developer ID signature and notarization. Scheduled checks add "Update available" to the
+menu bar menu instead of popping up a window.
+
+The public key is in `Resources/SparklePublicKey.txt`. The **private key must never be lost**: without it, existing
+installs can't be updated. It lives in the login keychain of the Mac that ran `generate_keys`; back it up with
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys -x sparkle-private-key   # then store it in a password manager
+```
+
+and paste its contents into the `SPARKLE_PRIVATE_KEY` secret. To make a new one, run `generate_keys` and replace the
+public key file, but older installs will then refuse updates.
 
 `.github/workflows/ci.yml` runs the self-tests and an unsigned build on every push to `main` and on pull requests.
 

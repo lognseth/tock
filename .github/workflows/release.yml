@@ -56,16 +56,31 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: ./build.sh dmg
 
+      # Stable releases only: Sparkle's feed is the newest non-prerelease release's appcast.xml,
+      # so release candidates never reach people who have the app installed.
+      - name: Sign update for Sparkle
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle.key"
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./Scripts/make-appcast.sh "build/Tock-$VERSION.dmg" "$VERSION" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/sparkle.key"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          FILES="build/Tock-*.dmg"
           FLAGS=""
-          case "$GITHUB_REF_NAME" in *-*) FLAGS="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" build/Tock-*.dmg --generate-notes $FLAGS
+          case "$GITHUB_REF_NAME" in
+            *-*) FLAGS="--prerelease" ;;
+            *) FILES="$FILES build/appcast.xml" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" $FILES --generate-notes $FLAGS
 
       - name: Clean up
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8"
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/sparkle.key"
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi

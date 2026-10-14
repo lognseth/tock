@@ -43,6 +43,7 @@ struct ShortcutRecorder: View {
 
 struct SettingsView: View {
     @ObservedObject var prefs: Preferences
+    @ObservedObject var updates: UpdateManager
     let addFiles: () -> Void
     let createFile: () -> Void
     let testReminder: () -> Void
@@ -126,6 +127,20 @@ struct SettingsView: View {
                 if let loginError = prefs.loginError { Text(loginError).font(.caption).foregroundStyle(.red) }
             }
 
+            Section("Updates") {
+                LabeledContent("Version", value: UpdateManager.currentVersion)
+                if updates.isEnabled {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { updates.automaticChecks }, set: { updates.automaticChecks = $0 }))
+                    Button(updates.availableVersion.map { "Update to \($0)…" } ?? "Check for updates now") {
+                        updates.checkForUpdates()
+                    }
+                } else {
+                    Text("Updates are only available in the released app.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
             Section("Obsidian") {
                 Toggle("Obsidian integration", isOn: $prefs.obsidianEnabled)
                 Text("Open the note in Obsidian, show [[wikilinks]] as links, and jump to a linked note with l.")
@@ -134,7 +149,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 780)
+        .frame(width: 520, height: 860)
     }
 
     private func isInbox(_ path: String) -> Bool {
