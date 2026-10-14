@@ -6,7 +6,7 @@ Prefer a real window? Open it from the menu bar, or make the shortcut open it (S
 
 - Works with any `.md` files, one or several. Everything else in them is left untouched.
 - Obsidian integration is optional (Settings → Obsidian).
-- macOS 14+, universal binary, no dependencies.
+- macOS 26 (Tahoe) or later, designed around Liquid Glass. Universal binary.
 
 ## Install
 
@@ -30,7 +30,8 @@ First launch asks for the markdown file. Add the app to Login Items from Setting
 - **Popup** (default): a quick overlay for capture and triage. Closes when you click away or press Esc.
 - **Window**: resizable, remembers its position, with a sidebar of views, lists (your headings) and tags.
   The same keys work, and so does the mouse (click to select, double-click to edit, click the circle to complete).
-- Settings → Window chooses which one the open shortcut shows, and whether Tock also appears in the Dock and ⌘Tab.
+- Settings → Window chooses which one the open shortcut shows, and where Tock lives: **menu bar only** (default),
+  **Dock and menu bar**, or **Dock only** (the due count then shows as a badge on the Dock icon).
   Quick add always uses the popup, unless the window is already open.
 
 ## Keys

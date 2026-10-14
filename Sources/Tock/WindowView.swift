@@ -1,39 +1,67 @@
 import SwiftUI
 
-/// The full window: a sidebar (views, lists, tags) next to the same task list the popup uses.
+/// The full window: a floating sidebar (views, lists, tags) next to the same task list the popup uses.
+/// The sidebar and the bottom bars are glass; the list itself stays flat for readability.
 struct WindowView: View {
     @Bindable var store: TaskStore
     @ObservedObject var prefs: Preferences
 
+    private let sidebarShape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+
     var body: some View {
-        HStack(spacing: 0) {
-            if store.hasFiles {
-                Sidebar(store: store)
-                    .frame(width: 220)
-                Divider()
-            }
-            VStack(spacing: 0) {
-                if !store.hasFiles {
-                    WelcomeView()
-                } else {
-                    WindowHeader(store: store)
-                    Divider().opacity(0.4)
-                    ZStack {
-                        TaskList(store: store, obsidian: prefs.obsidianEnabled)
-                        if store.showHelp { HelpOverlay().transition(.opacity) }
-                    }
-                    if let kind = store.editing {
-                        Divider().opacity(0.4)
-                        EditBar(store: store, kind: kind)
+        ZStack {
+            WindowBackdrop()
+            HStack(alignment: .top, spacing: 0) {
+                if store.hasFiles {
+                    // Starts below the traffic-light row so the buttons don't straddle the card's corner.
+                    Sidebar(store: store)
+                        .frame(width: 236)
+                        .clipShape(sidebarShape)
+                        .tockSurface(sidebarShape)
+                        .padding(EdgeInsets(top: 44, leading: 10, bottom: 10, trailing: 0))
+                }
+                VStack(spacing: 0) {
+                    if !store.hasFiles {
+                        WelcomeView()
+                    } else {
+                        WindowHeader(store: store)
+                        ZStack {
+                            TaskList(store: store, obsidian: prefs.obsidianEnabled)
+                            if store.showHelp { HelpOverlay().transition(.opacity) }
+                        }
                     }
                 }
-                Divider().opacity(0.4)
-                FooterBar(store: store)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    GlassEffectContainer(spacing: 8) {
+                        VStack(spacing: 8) {
+                            if let kind = store.editing { EditBar(store: store, kind: kind, floating: true) }
+                            FooterBar(store: store, floating: true)
+                        }
+                    }
+                    .padding(.bottom, 10)
+                    .padding(.top, 4)
+                }
+                // Same 10pt margin as the sidebar card, so nothing touches the window edge.
+                .padding(.horizontal, 10)
             }
         }
+        .ignoresSafeArea(.container, edges: .top)  // content runs under the transparent title bar
         .frame(minWidth: 700, minHeight: 440)
-        .background(Color(nsColor: .windowBackgroundColor))
         .animation(.easeOut(duration: 0.12), value: store.showHelp)
+    }
+}
+
+/// A soft accent glow gives the glass something to refract.
+struct WindowBackdrop: View {
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            RadialGradient(colors: [Color.accentColor.opacity(0.16), .clear],
+                           center: .topLeading, startRadius: 0, endRadius: 560)
+            RadialGradient(colors: [Color.purple.opacity(0.08), .clear],
+                           center: .bottomTrailing, startRadius: 0, endRadius: 480)
+        }
+        .ignoresSafeArea()
     }
 }
 
@@ -61,8 +89,9 @@ struct WindowHeader: View {
                 .focusable(false)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)   // lines the title up with the row icons below
+        .padding(.top, 14)          // centred on the traffic lights
+        .padding(.bottom, 8)
     }
 }
 
@@ -111,9 +140,8 @@ struct Sidebar: View {
                     }
                 }
             }
-            .padding(10)
+            .padding(EdgeInsets(top: 12, leading: 10, bottom: 10, trailing: 10))
         }
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     /// Clicking must not leave keyboard focus on the sidebar; the list keys expect the window itself.

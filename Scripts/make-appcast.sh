@@ -30,7 +30,7 @@ cat > build/appcast.xml <<XML
       <pubDate>$DATE</pubDate>
       <sparkle:version>$BUNDLE_VERSION</sparkle:version>
       <sparkle:shortVersionString>$BUNDLE_VERSION</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
       <sparkle:fullReleaseNotesLink>https://github.com/$REPO/releases/tag/$TAG</sparkle:fullReleaseNotesLink>
       <enclosure url="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")" $SIG type="application/octet-stream"/>
     </item>

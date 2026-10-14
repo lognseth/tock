@@ -78,8 +78,8 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
-                    Button("Add files…", action: addFiles)
-                    Button("New file…", action: createFile)
+                    Button("Add files…", action: addFiles).buttonStyle(.glass)
+                    Button("New file…", action: createFile).buttonStyle(.glass)
                 }
                 TextField("New tasks go under heading", text: $prefs.newTaskHeading,
                           prompt: Text("End of file"))
@@ -98,8 +98,12 @@ struct SettingsView: View {
                     Text("Quick popup").tag(false)
                     Text("Full window").tag(true)
                 }
-                Toggle("Show Tock in the Dock and ⌘Tab", isOn: $prefs.showInDock)
-                Text("Quick add always uses the popup unless the window is already open.")
+                Picker("Show Tock in", selection: $prefs.presence) {
+                    ForEach(AppPresence.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Text(prefs.presence == .dock
+                     ? "Without the menu bar item, use the shortcuts, the Dock icon (right-click for more) or ⌘, for settings."
+                     : "Quick add always uses the popup unless the window is already open. Dock icons also appear in ⌘Tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -107,7 +111,7 @@ struct SettingsView: View {
                 Toggle("Daily summary of tasks due", isOn: $prefs.remindersEnabled)
                 if prefs.remindersEnabled {
                     DatePicker("Send at", selection: reminderTime, displayedComponents: .hourAndMinute)
-                    Button("Send a test notification", action: testReminder)
+                    Button("Send a test notification", action: testReminder).buttonStyle(.glass)
                 }
                 Text("One notification a day listing what's overdue or due today. Tock has to be running.")
                     .font(.caption).foregroundStyle(.secondary)

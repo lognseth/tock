@@ -440,6 +440,20 @@ enum SelfTest {
         eq(defaults.object(forKey: "stampDone") as? Bool, true)
         Preferences.migrate(nil, into: defaults)                      // no old settings: nothing happens
         defaults.removePersistentDomain(forName: suite)
+
+        // The old "show in Dock" switch becomes "Dock and menu bar"; a stored choice wins.
+        let d2 = UserDefaults(suiteName: suite)!
+        eq(AppPresence.stored(in: d2), .menuBar)
+        d2.set(true, forKey: "showInDock")
+        eq(AppPresence.stored(in: d2), .both)
+        d2.set("dock", forKey: "presence")
+        eq(AppPresence.stored(in: d2), .dock)
+        d2.set("nonsense", forKey: "presence")
+        eq(AppPresence.stored(in: d2), .both)                         // unreadable value falls back
+        check(AppPresence.dock.hasDock && !AppPresence.dock.hasMenuBar, "dock only")
+        check(AppPresence.both.hasDock && AppPresence.both.hasMenuBar, "both")
+        check(!AppPresence.menuBar.hasDock && AppPresence.menuBar.hasMenuBar, "menu bar only")
+        d2.removePersistentDomain(forName: suite)
     }
 
     private static func external() {

@@ -59,8 +59,8 @@ struct PanelView: View {
             FooterBar(store: store)
         }
         .frame(width: 640, height: 480)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .tockSurface(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .animation(.easeOut(duration: 0.12), value: store.showHelp)
     }
 }
@@ -68,6 +68,8 @@ struct PanelView: View {
 struct EditBar: View {
     @Bindable var store: TaskStore
     let kind: EditKind
+    /// Floating glass bar (window) instead of a tinted full-width row (popup).
+    var floating = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -104,9 +106,10 @@ struct EditBar: View {
                     }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, floating ? 11 : 12)
         }
-        .background(Color.accentColor.opacity(0.06))
+        .background(floating ? Color.clear : Color.accentColor.opacity(0.06))
+        .modifier(FloatingBar(enabled: floating, radius: 24))
         .onAppear { DispatchQueue.main.async { focused = true } }
     }
 }
@@ -215,6 +218,7 @@ struct TaskList: View {
                     .padding(.vertical, 6)
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .vertical)
             .onChange(of: store.selected) { _, new in
                 if let new { proxy.scrollTo(new) }
             }
@@ -356,6 +360,7 @@ struct TaskRow: View {
 
 struct FooterBar: View {
     let store: TaskStore
+    var floating = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -384,8 +389,25 @@ struct FooterBar: View {
             }
         }
         .lineLimit(1)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, floating ? 18 : 14)
+        .padding(.vertical, floating ? 9 : 8)
+        .modifier(FloatingBar(enabled: floating, radius: 22))
+    }
+}
+
+/// Wraps a bar in its own glass capsule when it floats over the list.
+struct FloatingBar: ViewModifier {
+    let enabled: Bool
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .tockSurface(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        } else {
+            content
+        }
     }
 }
 

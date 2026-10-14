@@ -58,10 +58,12 @@ enum Snapshot {
             ? AnyView(WindowView(store: store, prefs: prefs))
             : AnyView(PanelView(store: store, prefs: prefs)))
         hosting.frame = NSRect(origin: .zero, size: size)
+        let dark = variant == "dark" || variant == "windowdark"
+
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
-        window.appearance = NSAppearance(named: (variant == "dark" || variant == "windowdark") ? .darkAqua : .aqua)
-        window.backgroundColor = (variant == "dark" || variant == "windowdark") ? NSColor(white: 0.15, alpha: 1) : NSColor(white: 0.93, alpha: 1)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.backgroundColor = dark ? NSColor(white: 0.15, alpha: 1) : NSColor(white: 0.93, alpha: 1)
         window.orderBack(nil)
         hosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))

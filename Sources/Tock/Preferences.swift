@@ -2,6 +2,28 @@ import AppKit
 import Carbon.HIToolbox
 import ServiceManagement
 
+/// Where Tock lives: menu bar, Dock, or both.
+enum AppPresence: String, CaseIterable {
+    case menuBar, both, dock
+
+    var hasDock: Bool { self != .menuBar }
+    var hasMenuBar: Bool { self != .dock }
+
+    var title: String {
+        switch self {
+        case .menuBar: return "Menu bar only"
+        case .both: return "Dock and menu bar"
+        case .dock: return "Dock only"
+        }
+    }
+
+    /// Older versions had a single "show in Dock" switch, which always kept the menu bar item too.
+    static func stored(in defaults: UserDefaults) -> AppPresence {
+        defaults.string(forKey: "presence").flatMap(AppPresence.init(rawValue:))
+            ?? (defaults.bool(forKey: "showInDock") ? .both : .menuBar)
+    }
+}
+
 struct KeyCombo: Codable, Equatable {
     var keyCode: Int
     var modifiers: Int  // Carbon modifier mask
@@ -84,7 +106,7 @@ final class Preferences: ObservableObject {
     @Published var showDoneByDefault: Bool { didSet { defaults.set(showDoneByDefault, forKey: "showDoneByDefault") } }
     @Published var newTaskHeading: String { didSet { defaults.set(newTaskHeading, forKey: "newTaskHeading") } }
     @Published var openInWindow: Bool { didSet { defaults.set(openInWindow, forKey: "openInWindow") } }
-    @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock"); onChange?() } }
+    @Published var presence: AppPresence { didSet { defaults.set(presence.rawValue, forKey: "presence"); onChange?() } }
     @Published var obsidianEnabled: Bool { didSet { defaults.set(obsidianEnabled, forKey: "obsidianEnabled") } }
     @Published var remindersEnabled: Bool { didSet { defaults.set(remindersEnabled, forKey: "remindersEnabled"); onChange?() } }
     @Published var reminderMinutes: Int { didSet { defaults.set(reminderMinutes, forKey: "reminderMinutes") } }  // minutes after midnight
@@ -104,7 +126,7 @@ final class Preferences: ObservableObject {
         showDoneByDefault = defaults.object(forKey: "showDoneByDefault") as? Bool ?? true
         newTaskHeading = defaults.string(forKey: "newTaskHeading") ?? ""
         openInWindow = defaults.object(forKey: "openInWindow") as? Bool ?? false
-        showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
+        presence = AppPresence.stored(in: defaults)
         remindersEnabled = defaults.object(forKey: "remindersEnabled") as? Bool ?? false
         reminderMinutes = defaults.object(forKey: "reminderMinutes") as? Int ?? 9 * 60
         obsidianEnabled = defaults.object(forKey: "obsidianEnabled") as? Bool ?? false

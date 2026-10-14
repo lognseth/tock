@@ -91,12 +91,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
 
-        if prefs.showInDock { showWindow(quickAdd: false) }
+        if prefs.presence.hasDock { showWindow(quickAdd: false) }
         else if !store.hasFiles { showPopup(quickAdd: false) }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if prefs.showInDock || prefs.openInWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) }
+        if prefs.presence.hasDock || prefs.openInWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) }
         return true
     }
 
@@ -112,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Prefs
 
     private func applyActivationPolicy() {
-        let wanted: NSApplication.ActivationPolicy = prefs.showInDock ? .regular : .accessory
+        let wanted: NSApplication.ActivationPolicy = prefs.presence.hasDock ? .regular : .accessory
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
     }
 
@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         syncFiles()
         updateWindowTitle()
         applyActivationPolicy()
+        statusItem.isVisible = prefs.presence.hasMenuBar
         registerHotKeys()
         rebuildMenu()
         updateBadge()
@@ -158,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func openFromNotification() {
-        if prefs.showInDock || prefs.openInWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) }
+        if prefs.presence.hasDock || prefs.openInWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) }
     }
 
     private func registerHotKeys() {
@@ -234,11 +235,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func makeMainWindow() -> TockWindow {
         let w = TockWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         w.title = "Tock"
+        w.titlebarAppearsTransparent = true
+        w.titleVisibility = .hidden
         w.minSize = NSSize(width: 700, height: 440)
         w.isReleasedWhenClosed = false
         w.delegate = self
@@ -269,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func hideWindow() {
         store.resetTransient()
         mainWindow?.orderOut(nil)
-        if !prefs.showInDock { NSApp.hide(nil) }
+        if !prefs.presence.hasDock { NSApp.hide(nil) }
     }
 
     // MARK: - Entry points (hotkeys, menu)
@@ -454,6 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Tock")
         statusItem.button?.imagePosition = .imageLeading
+        statusItem.isVisible = prefs.presence.hasMenuBar
         rebuildMenu()
     }
 
@@ -477,6 +481,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateBadge() {
         let n = prefs.showBadge ? store.count(.today) : 0
         statusItem.button?.title = n > 0 ? " \(n)" : ""
+        NSApp.dockTile.badgeLabel = prefs.presence.hasDock && n > 0 ? "\(n)" : nil
+    }
+
+    // Right-click menu on the Dock icon.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Quick Add", action: #selector(menuQuickAdd), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Open To-Dos", action: #selector(menuOpen), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Open File", action: #selector(menuOpenFile), keyEquivalent: "").target = self
+        if updates.isEnabled {
+            let title = updates.availableVersion.map { "Update to \($0) Available…" } ?? "Check for Updates…"
+            menu.addItem(withTitle: title, action: #selector(menuCheckForUpdates), keyEquivalent: "").target = self
+        }
+        return menu
     }
 
     @objc private func menuOpen() { if wantsWindow { showWindow(quickAdd: false) } else { showPopup(quickAdd: false) } }
