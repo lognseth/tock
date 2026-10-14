@@ -18,9 +18,10 @@ cask "tock" do
   app "Tock.app"
 
   zap trash: [
-    "~/Library/Application Support/com.local.tock",
-    "~/Library/Caches/com.local.tock",
-    "~/Library/HTTPStorages/com.local.tock",
+    "~/Library/Application Support/de.lognseth.tock",
+    "~/Library/Caches/de.lognseth.tock",
+    "~/Library/HTTPStorages/de.lognseth.tock",
     "~/Library/Preferences/com.local.tock.plist",
+    "~/Library/Preferences/de.lognseth.tock.plist",
   ]
 end

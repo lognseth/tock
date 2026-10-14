@@ -13,6 +13,8 @@ jobs:
   release:
     runs-on: macos-latest
     timeout-minutes: 25   # a hung signing/notarization step should fail, not sit for hours
+    env:
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +84,7 @@ jobs:
 
       # Stable releases only. Needs a fine-grained token with Contents: write on the tap repository.
       - name: Update Homebrew tap
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(github.ref_name, '-') && env.HAS_TAP_TOKEN == 'true' }}
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |

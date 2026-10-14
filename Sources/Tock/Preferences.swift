@@ -52,7 +52,24 @@ struct KeyCombo: Codable, Equatable {
 
 @MainActor
 final class Preferences: ObservableObject {
-    static let shared = Preferences()
+    static let shared = Preferences(defaults: standardWithMigration())
+
+    /// 1.2.0 shipped with the placeholder bundle ID com.local.tock; carry its settings over once.
+    private static func standardWithMigration() -> UserDefaults {
+        let defaults = UserDefaults.standard
+        if Bundle.main.bundleIdentifier == "de.lognseth.tock", defaults.object(forKey: "migratedFromLocalID") == nil {
+            migrate(defaults.persistentDomain(forName: "com.local.tock"), into: defaults)
+            defaults.set(true, forKey: "migratedFromLocalID")
+        }
+        return defaults
+    }
+
+    /// Copies settings that aren't already set; never overwrites.
+    static func migrate(_ old: [String: Any]?, into defaults: UserDefaults) {
+        for (key, value) in old ?? [:] where defaults.object(forKey: key) == nil {
+            defaults.set(value, forKey: key)
+        }
+    }
 
     private let defaults: UserDefaults
     var onChange: (() -> Void)?

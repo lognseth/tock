@@ -50,6 +50,7 @@ enum SelfTest {
         multiFile()
         moveAndSnooze()
         reminders()
+        migration()
         external()
         obsidian()
         print(failures == 0 ? "selftest: all \(checks) checks passed" : "selftest: \(failures) of \(checks) failed")
@@ -426,6 +427,19 @@ enum SelfTest {
         let due = s.dueSummary()
         eq(due.overdue.map(\.title), ["a"])
         eq(due.today.map(\.title), ["b", "c"])
+    }
+
+    private static func migration() {
+        let suite = "tock.selftest.migrate.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set(["/new/path.md"], forKey: "filePaths")          // already set: must survive
+        Preferences.migrate(["filePaths": ["/old/path.md"], "showBadge": false, "stampDone": true], into: defaults)
+        eq(defaults.stringArray(forKey: "filePaths") ?? [], ["/new/path.md"])
+        eq(defaults.object(forKey: "showBadge") as? Bool, false)
+        eq(defaults.object(forKey: "stampDone") as? Bool, true)
+        Preferences.migrate(nil, into: defaults)                      // no old settings: nothing happens
+        defaults.removePersistentDomain(forName: suite)
     }
 
     private static func external() {
